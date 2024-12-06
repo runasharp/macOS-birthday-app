@@ -1,83 +1,108 @@
-//
-//  ContentView.swift
-//  BirthdayApp
-//
-//  Created by Anastasia Ivanova on 03.12.24.
-//
 
 import SwiftUI
 import CoreData
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
-
     @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
+        sortDescriptors: [],
         animation: .default)
-    private var items: FetchedResults<Item>
+    private var friends: FetchedResults<Friend>
+
+    @State private var isAddingFriend = false
+    @State private var selectedFriend: Friend?
+    @State private var isDebugMode = false // State to toggle debug mode
+
+    var sortedFriends: [Friend] {
+        friends.sorted { first, second in
+            let daysToFirst = daysUntilNextBirthday(from: first.dateOfBirth ?? Date())
+            let daysToSecond = daysUntilNextBirthday(from: second.dateOfBirth ?? Date())
+
+            if daysToFirst == daysToSecond {
+                return (first.firstName ?? "") < (second.firstName ?? "")
+            }
+            return daysToFirst < daysToSecond
+        }
+    }
 
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp!, formatter: itemFormatter)")
-                    } label: {
-                        Text(item.timestamp!, formatter: itemFormatter)
+        VStack {
+            if isDebugMode {
+                // Debug mode UI
+            } else {
+                List {
+                    ForEach(sortedFriends, id: \.self) { friend in
+                        HStack {
+                            if let photoData = friend.photo, let image = NSImage(data: photoData) {
+                                Image(nsImage: image)
+                                    .resizable()
+                                    .scaledToFill() // или .scaledToFit(), смотря что нужно
+                                    .frame(width: 50, height: 50)
+                                    .clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.circle")
+                                    .resizable()
+                                    .scaledToFill() // или .scaledToFit(), смотря что нужно
+                                    .frame(width: 50, height: 50)
+                                    .foregroundColor(.gray)
+                            }
+
+                            VStack(alignment: .leading) {
+                                Text("\(friend.firstName ?? "") \(friend.lastName ?? "")")
+                                    .font(.headline)
+                                if let dateOfBirth = friend.dateOfBirth {
+                                    Text("Next Birthday: \(daysUntilNextBirthday(from: dateOfBirth)) days")
+                                        .font(.subheadline)
+                                    Text("Turns \(calculateAge(on: dateOfBirth)) years old")
+                                        .font(.caption)
+                                }
+                            }
+
+                            Spacer()
+
+                            // Pencil icon
+                            Button(action: {
+                                selectedFriend = friend
+                            }) {
+                                Image(systemName: "pencil")
+                                    .foregroundColor(.blue)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+
+                            // Trash icon
+                            Button(action: {
+                                delete(friend)
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        }
                     }
                 }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button(action: { isAddingFriend.toggle() }) {
+                            Label("Add Friend", systemImage: "plus")
+                        }
                     }
                 }
+                .sheet(isPresented: $isAddingFriend) {
+                    AddFriendView()
+                        .environment(\.managedObjectContext, viewContext)
+                }
+                .sheet(item: $selectedFriend) { friend in
+                    EditFriendView(friend: friend)
+                        .environment(\.managedObjectContext, viewContext)
+                }
             }
-            Text("Select an item")
         }
     }
 
-    private func addItem() {
+    private func delete(_ friend: Friend) {
         withAnimation {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
+            viewContext.delete(friend)
+            try? viewContext.save()
         }
     }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            offsets.map { items[$0] }.forEach(viewContext.delete)
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
-        }
-    }
-}
-
-private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
-}()
-
-#Preview {
-    ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
 }
